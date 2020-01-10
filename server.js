@@ -59,7 +59,6 @@ app.get(
   async (req, res, next) => {
     try {
       const userInfo = await fetchUserInfoFromGithub(req, res);
-      console.log(userInfo);
 
       // query db
       // user not exist => insert db
