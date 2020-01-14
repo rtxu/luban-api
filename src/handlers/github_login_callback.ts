@@ -1,19 +1,8 @@
-import express from "express";
 import jwt from "jsonwebtoken";
 
-import { GITHUB_OAUTH_APP, JWT_SECRET, APP_ROOT } from "./config/config";
-import { request, makeQueryString } from "./util";
+import { GITHUB_OAUTH_APP, JWT_SECRET, APP_ROOT } from "../../config/config";
+import { request, makeQueryString } from "../utils";
 
-const app = express();
-const port = 3000;
-
-/**
- * Common Middleware
- */
-
-/**
- * Business Logic
- */
 async function fetchUserInfoFromGithub(req, res) {
   const code = req.query.code;
   const params = {
@@ -54,25 +43,16 @@ function loginSuccess(uid, res) {
   res.redirect(303, `${APP_ROOT}/login-success?${query}`);
 }
 
-app.get(
-  ["login", "signup"].map(action => `/callback/github/${action}`),
-  async (req, res, next) => {
-    try {
-      const userInfo = await fetchUserInfoFromGithub(req, res);
+export default async (req, res) => {
+  try {
+    const userInfo = await fetchUserInfoFromGithub(req, res);
 
-      // query db
-      // user not exist => insert db
-      // user exist
+    // query db
+    // user not exist => insert db
+    // user exist
 
-      loginSuccess(userInfo.login, res);
-    } catch (e) {
-      next(e);
-    }
+    loginSuccess(userInfo.login, res);
+  } catch (e) {
+    console.error("caught exception: ", e.name, e.message);
   }
-);
-
-/**
- * Error Handling Middleware
- */
-
-app.listen(port, () => console.log(`Example app listening on port ${port}!`));
+};
