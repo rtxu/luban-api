@@ -1,8 +1,0 @@
-{
-  "env": {
-    "GITHUB_OAUTH_APP_CLIENT_ID": "@github_oauth_app_client_id",
-    "GITHUB_OAUTH_APP_CLIENT_SECRET": "@github_oauth_app_client_secret",
-    "JWT_SECRET": "@jwt_secret",
-    "APP_ROOT": "@app_root"
-  }
-}
