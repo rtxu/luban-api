@@ -18,5 +18,6 @@ readonly ABSPath=$(cd $(dirname $0); pwd)
 
 cd $ABSPath/../localEnv
 go build -o main ../main.go
-./main
+# enable db debug, ref: https://godoc.org/upper.io/db.v3#pkg-constants
+UPPERIO_DB_DEBUG=1 ./main
 

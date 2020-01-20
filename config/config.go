@@ -12,10 +12,18 @@ type GithubOAuthConf struct {
 	ClientSecret string `yaml:"ClientSecret"`
 }
 
+type MysqlConf struct {
+	Host     string `yaml:"Host"`
+	User     string `yaml:"User"`
+	Password string `yaml:"Password"`
+	Database string `yaml:"Database"`
+}
+
 var (
 	GithubOAuth GithubOAuthConf
 	JWTSecret   string
 	AppRoot     string
+	Mysql       MysqlConf
 )
 
 func init() {
@@ -27,6 +35,7 @@ func init() {
 		GithubOAuth GithubOAuthConf `yaml:"GithubOAuth"`
 		JWTSecret   string          `yaml:"JWTSecret"`
 		AppRoot     string          `yaml:"AppRoot"`
+		Mysql       MysqlConf       `yaml:"Mysql"`
 	}
 	var appConf appConfig
 	err = yaml.Unmarshal(configBytes, &appConf)
@@ -37,4 +46,5 @@ func init() {
 	GithubOAuth = appConf.GithubOAuth
 	JWTSecret = appConf.JWTSecret
 	AppRoot = appConf.AppRoot
+	Mysql = appConf.Mysql
 }
