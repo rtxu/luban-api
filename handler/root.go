@@ -12,7 +12,10 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/jwtauth"
+	"github.com/sirupsen/logrus"
+
 	"github.com/rtxu/luban-api/config"
 	"github.com/rtxu/luban-api/db"
 )
@@ -21,7 +24,21 @@ var tokenAuth *jwtauth.JWTAuth = jwtauth.New("HS256", []byte(config.JWTSecret), 
 var Root http.Handler
 
 func init() {
+
+	// Setup the logger backend using sirupsen/logrus and configure
+	// it to use a custom JSONFormatter. See the logrus docs for how to
+	// configure the backend at github.com/sirupsen/logrus
+	logger := logrus.New()
+	logger.Formatter = &logrus.JSONFormatter{
+		// disable, as we set our own
+		DisableTimestamp: true,
+	}
+
 	r := chi.NewRouter()
+
+	r.Use(middleware.RequestID)
+	r.Use(NewStructuredLogger(logger))
+	r.Use(middleware.Recoverer)
 
 	// Public Routes
 	r.Group(func(r chi.Router) {
@@ -42,8 +59,7 @@ func init() {
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				panic(err)
 			}
 			defer resp.Body.Close()
 
@@ -54,16 +70,14 @@ func init() {
 			}
 			var accessToken accessTokenT
 			if err := json.Unmarshal(body, &accessToken); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				panic(err)
 			}
 
 			req2, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
 			req2.Header.Add("Authorization", fmt.Sprintf("%s %s", accessToken.TokenType, accessToken.AccessToken))
 			resp2, err := client.Do(req2)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				panic(err)
 			}
 			defer resp2.Body.Close()
 			body2, err := ioutil.ReadAll(resp2.Body)
@@ -72,8 +86,7 @@ func init() {
 			}
 			var userInfo userInfoT
 			if err := json.Unmarshal(body2, &userInfo); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				panic(err)
 			}
 
 			_, err = db.UserService.FindByGithubUserName(userInfo.Login)
@@ -86,12 +99,10 @@ func init() {
 					},
 				})
 				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
+					panic(err)
 				}
 			} else if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				panic(err)
 			}
 
 			claims := jwt.MapClaims{
@@ -127,4 +138,91 @@ func init() {
 	})
 
 	Root = r
+}
+
+// StructuredLogger is a simple, but powerful implementation of a custom structured
+// logger backed on logrus. I encourage users to copy it, adapt it and make it their
+// own. Also take a look at https://github.com/pressly/lg for a dedicated pkg based
+// on this work, designed for context-based http routers.
+
+func NewStructuredLogger(logger *logrus.Logger) func(next http.Handler) http.Handler {
+	return middleware.RequestLogger(&StructuredLogger{logger})
+}
+
+type StructuredLogger struct {
+	Logger *logrus.Logger
+}
+
+func (l *StructuredLogger) NewLogEntry(r *http.Request) middleware.LogEntry {
+	entry := &StructuredLoggerEntry{Logger: logrus.NewEntry(l.Logger)}
+	logFields := logrus.Fields{}
+
+	logFields["ts"] = time.Now().UTC().Format(time.RFC1123)
+
+	if reqID := middleware.GetReqID(r.Context()); reqID != "" {
+		logFields["req_id"] = reqID
+	}
+
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	logFields["http_scheme"] = scheme
+	logFields["http_proto"] = r.Proto
+	logFields["http_method"] = r.Method
+
+	logFields["remote_addr"] = r.RemoteAddr
+	logFields["user_agent"] = r.UserAgent()
+
+	logFields["uri"] = fmt.Sprintf("%s://%s%s", scheme, r.Host, r.RequestURI)
+
+	entry.Logger = entry.Logger.WithFields(logFields)
+
+	entry.Logger.Infoln("request started")
+
+	return entry
+}
+
+type StructuredLoggerEntry struct {
+	Logger logrus.FieldLogger
+}
+
+func (l *StructuredLoggerEntry) Write(status, bytes int, elapsed time.Duration) {
+	l.Logger = l.Logger.WithFields(logrus.Fields{
+		"resp_status": status, "resp_bytes_length": bytes,
+		"resp_elapsed_ms": float64(elapsed.Nanoseconds()) / 1000000.0,
+	})
+
+	l.Logger.Infoln("request complete")
+}
+
+func (l *StructuredLoggerEntry) Panic(v interface{}, stack []byte) {
+	l.Logger = l.Logger.WithFields(logrus.Fields{
+		"stack": string(stack),
+		"panic": fmt.Sprintf("%+v", v),
+	})
+}
+
+// Helper methods used by the application to get the request-scoped
+// logger entry and set additional fields between handlers.
+//
+// This is a useful pattern to use to set state on the entry as it
+// passes through the handler chain, which at any point can be logged
+// with a call to .Print(), .Info(), etc.
+
+func GetLogEntry(r *http.Request) logrus.FieldLogger {
+	entry := middleware.GetLogEntry(r).(*StructuredLoggerEntry)
+	return entry.Logger
+}
+
+func LogEntrySetField(r *http.Request, key string, value interface{}) {
+	if entry, ok := r.Context().Value(middleware.LogEntryCtxKey).(*StructuredLoggerEntry); ok {
+		entry.Logger = entry.Logger.WithField(key, value)
+	}
+}
+
+func LogEntrySetFields(r *http.Request, fields map[string]interface{}) {
+	if entry, ok := r.Context().Value(middleware.LogEntryCtxKey).(*StructuredLoggerEntry); ok {
+		entry.Logger = entry.Logger.WithFields(fields)
+	}
 }
