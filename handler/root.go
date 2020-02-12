@@ -167,10 +167,25 @@ func init() {
 			if err != nil {
 				panic(err)
 			}
+			type DataT struct {
+				Username  string     `json:"username"`
+				AvatarUrl string     `json:"avatarUrl"`
+				RootDir   DirectoryT `json:"rootDir"`
+			}
+			data := DataT{
+				Username:  user.UserName,
+				AvatarUrl: *user.AvatarUrl,
+			}
+			if user.RootDir != nil {
+				err := json.Unmarshal([]byte(*user.RootDir), &data.RootDir)
+				if err != nil {
+					panic(err)
+				}
+			}
 			var jsonResponse = JsonResponse{
 				Code: 0,
 				Msg:  "",
-				Data: user,
+				Data: data,
 			}
 			jsonBytes, _ := json.Marshal(jsonResponse)
 			w.Write(jsonBytes)

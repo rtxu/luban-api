@@ -7,4 +7,5 @@ type User struct {
 	UserName       string  `db:"username" json:"username"`
 	GithubUserName *string `db:"github_username" json:"githubUsername"`
 	AvatarUrl      *string `db:"avatar_url" json:"avatarUrl"`
+	RootDir        *string `db:"root_dir"`
 }
