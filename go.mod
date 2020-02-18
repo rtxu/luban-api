@@ -10,6 +10,7 @@ require (
 	github.com/go-sql-driver/mysql v1.5.0 // indirect
 	github.com/sirupsen/logrus v1.4.2
 	github.com/stretchr/testify v1.4.0 // indirect
+	golang.org/x/net v0.0.0-20200202094626-16171245cfb2 // indirect
 	gopkg.in/mgo.v2 v2.0.0-20190816093944-a6b53ec6cb22 // indirect
 	gopkg.in/yaml.v2 v2.2.7
 	upper.io/db.v3 v3.6.3+incompatible

@@ -45,11 +45,13 @@ func (a EntryTypeT) MarshalJSON() ([]byte, error) {
 }
 
 type EntryT struct {
-	Name string     `json:"name"`
-	Type EntryTypeT `json:"type"`
+	Name    string     `json:"name"`
+	Type    EntryTypeT `json:"type"`
+	Comment string     `json:"comment"`
+	Icon    string     `json:"icon"`
 
 	// when Type="app"
-	AppId int `json:"appId"`
+	AppId uint32 `json:"appId"`
 
 	// when Type="directory"
 	Children DirectoryT `json:"children"`

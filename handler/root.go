@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -97,10 +98,97 @@ func handleGithubLogin(w http.ResponseWriter, r *http.Request) {
 		303)
 }
 
+func handleAddEntry(w http.ResponseWriter, r *http.Request) {
+	type paramT struct {
+		Dir   string `json:"dir"`
+		Entry EntryT `json:"entry"`
+	}
+	bodyBytes, _ := ioutil.ReadAll(r.Body)
+	var param paramT
+	json.Unmarshal(bodyBytes, &param)
+
+	_, claims, _ := jwtauth.FromContext(r.Context())
+	var userID = claims["user_id"].(string)
+	user, err := db.UserService.Find(userID)
+	if err != nil {
+		panic(err)
+	}
+	var rootDir DirectoryT
+	if user.RootDir != nil {
+		json.Unmarshal([]byte(*user.RootDir), &rootDir)
+	}
+
+	currentDirPtr := &rootDir
+	dirParts := strings.FieldsFunc(param.Dir, func(r rune) bool {
+		return r == '/'
+	})
+	for i := 0; i < len(dirParts); i++ {
+		targetDirName := dirParts[i]
+		for j := 0; j < len(*currentDirPtr); j++ {
+			entry := (*currentDirPtr)[j]
+			if entry.Type == Directory && entry.Name == targetDirName {
+				currentDirPtr = &entry.Children
+				break
+			}
+		}
+	}
+
+	for i := 0; i < len(*currentDirPtr); i++ {
+		if (*currentDirPtr)[i].Name == param.Entry.Name {
+			writeJsonResponse(w, JsonResponse{
+				Code: 1,
+				Msg: fmt.Sprintf("Entry(%s) already exists under directory(%s)",
+					param.Entry.Name,
+					param.Dir),
+			})
+			return
+		}
+	}
+
+	if param.Entry.Type == Directory {
+		param.Entry.Children = make(DirectoryT, 0)
+	} else {
+		app := &db.App{
+			OwnerID: user.ID,
+		}
+		err := db.AppService.NewApp(app)
+		if err != nil {
+			panic(err)
+		}
+		param.Entry.AppId = app.ID
+	}
+	(*currentDirPtr) = append((*currentDirPtr), &param.Entry)
+	newRootDirBytes, _ := json.Marshal(rootDir)
+	err = db.UserService.Update(userID, map[string]interface{}{
+		"root_dir": string(newRootDirBytes),
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	writeJsonData(w, nil)
+}
+func handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
+}
+
 type JsonResponse struct {
 	Code int         `json:"code"`
 	Msg  string      `json:"msg"`
 	Data interface{} `json:"data"`
+}
+
+func writeJsonResponse(w http.ResponseWriter, jsonResponse JsonResponse) {
+	bytes, _ := json.Marshal(jsonResponse)
+	w.Write(bytes)
+}
+func writeJsonData(w http.ResponseWriter, data interface{}) {
+	var jsonResponse = JsonResponse{
+		Code: 0,
+		Msg:  "",
+		Data: data,
+	}
+	bytes, _ := json.Marshal(jsonResponse)
+	w.Write(bytes)
 }
 
 func init() {
@@ -161,7 +249,6 @@ func init() {
 		})
 		r.Get("/currentUser", func(w http.ResponseWriter, r *http.Request) {
 			_, claims, _ := jwtauth.FromContext(r.Context())
-			fmt.Println()
 			var userID = claims["user_id"].(string)
 			user, err := db.UserService.Find(userID)
 			if err != nil {
@@ -182,13 +269,12 @@ func init() {
 					panic(err)
 				}
 			}
-			var jsonResponse = JsonResponse{
-				Code: 0,
-				Msg:  "",
-				Data: data,
-			}
-			jsonBytes, _ := json.Marshal(jsonResponse)
-			w.Write(jsonBytes)
+			writeJsonData(w, data)
+		})
+
+		r.Route("/currentUser/entry", func(r chi.Router) {
+			r.Post("/", handleAddEntry)
+			r.Delete("/", handleDeleteEntry)
 		})
 	})
 

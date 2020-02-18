@@ -40,3 +40,9 @@ func (s *userService) Insert(user User) error {
 	_, err := tbl.Insert(user)
 	return err
 }
+
+func (s *userService) Update(username string, toUpdate map[string]interface{}) error {
+	tbl := defaultClient.Collection(tableName)
+	res := tbl.Find(db.Cond{"username": username})
+	return res.Update(toUpdate)
+}
