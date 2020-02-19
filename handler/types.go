@@ -44,6 +44,7 @@ func (a EntryTypeT) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s)
 }
 
+// EntryT 代表用户导航菜单中的一项
 type EntryT struct {
 	Name    string     `json:"name"`
 	Type    EntryTypeT `json:"type"`
@@ -58,3 +59,10 @@ type EntryT struct {
 }
 
 type DirectoryT []*EntryT
+
+// 返回给用户的结果均遵循该结构
+type JsonResponse struct {
+	Code int         `json:"code"`
+	Msg  string      `json:"msg"`
+	Data interface{} `json:"data"`
+}
