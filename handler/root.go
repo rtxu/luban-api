@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -93,15 +94,12 @@ func GithubLogin(w http.ResponseWriter, r *http.Request) {
 		303)
 }
 
-func AddEntry(w http.ResponseWriter, r *http.Request) {
-	type paramT struct {
-		Dir   string `json:"dir"`
-		Entry EntryT `json:"entry"`
-	}
-	bodyBytes, _ := ioutil.ReadAll(r.Body)
-	var param paramT
-	json.Unmarshal(bodyBytes, &param)
+func readParam(r io.Reader, param interface{}) {
+	bytes, _ := ioutil.ReadAll(r)
+	json.Unmarshal(bytes, &param)
+}
 
+func getCurrentUserAndRootDir(r *http.Request) (db.User, DirectoryT) {
 	_, claims, _ := jwtauth.FromContext(r.Context())
 	var userID = claims["user_id"].(string)
 	user, err := db.UserService.Find(userID)
@@ -110,11 +108,16 @@ func AddEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	var rootDir DirectoryT
 	if user.RootDir != nil {
-		json.Unmarshal([]byte(*user.RootDir), &rootDir)
+		if err := json.Unmarshal([]byte(*user.RootDir), &rootDir); err != nil {
+			panic(err)
+		}
 	}
+	return user, rootDir
+}
 
-	currentDirPtr := &rootDir
-	dirParts := strings.FieldsFunc(param.Dir, func(r rune) bool {
+func findTargetDir(targetDirName string, rootDir *DirectoryT) *DirectoryT {
+	currentDirPtr := rootDir
+	dirParts := strings.FieldsFunc(targetDirName, func(r rune) bool {
 		return r == '/'
 	})
 	for i := 0; i < len(dirParts); i++ {
@@ -127,9 +130,31 @@ func AddEntry(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	return currentDirPtr
+}
 
-	for i := 0; i < len(*currentDirPtr); i++ {
-		if (*currentDirPtr)[i].Name == param.Entry.Name {
+func syncUpdatedRootDirToDB(username string, rootDir DirectoryT) {
+	newRootDirBytes, _ := json.Marshal(rootDir)
+	err := db.UserService.Update(username, map[string]interface{}{
+		"root_dir": string(newRootDirBytes),
+	})
+	if err != nil {
+		panic(err)
+	}
+}
+
+func AddEntry(w http.ResponseWriter, r *http.Request) {
+	var param struct {
+		Dir   string `json:"dir"`
+		Entry EntryT `json:"entry"`
+	}
+	readParam(r.Body, &param)
+
+	user, rootDir := getCurrentUserAndRootDir(r)
+	pTargetDir := findTargetDir(param.Dir, &rootDir)
+
+	for i := 0; i < len(*pTargetDir); i++ {
+		if (*pTargetDir)[i].Name == param.Entry.Name {
 			writeJsonResponse(w, JsonResponse{
 				Code: 1,
 				Msg: fmt.Sprintf("Entry(%s) already exists under directory(%s)",
@@ -152,18 +177,42 @@ func AddEntry(w http.ResponseWriter, r *http.Request) {
 		}
 		param.Entry.AppId = app.ID
 	}
-	(*currentDirPtr) = append((*currentDirPtr), &param.Entry)
-	newRootDirBytes, _ := json.Marshal(rootDir)
-	err = db.UserService.Update(userID, map[string]interface{}{
-		"root_dir": string(newRootDirBytes),
-	})
-	if err != nil {
-		panic(err)
-	}
-
+	(*pTargetDir) = append((*pTargetDir), &param.Entry)
+	syncUpdatedRootDirToDB(user.UserName, rootDir)
 	writeJsonData(w, nil)
 }
+
 func DeleteEntry(w http.ResponseWriter, r *http.Request) {
+	var param struct {
+		Dir       string `json:"dir"`
+		EntryName string `json:"entryName"`
+	}
+	readParam(r.Body, &param)
+
+	user, rootDir := getCurrentUserAndRootDir(r)
+	pTargetDir := findTargetDir(param.Dir, &rootDir)
+
+	newTargetDir := make(DirectoryT, 0, len((*pTargetDir))-1)
+	for i := 0; i < len((*pTargetDir)); i++ {
+		entry := (*pTargetDir)[i]
+		if entry.Name == param.EntryName {
+			if entry.Type == Directory {
+				if len(entry.Children) > 0 {
+					writeJsonResponse(w, JsonResponse{
+						Code: 1,
+						Msg:  "non-empty directory",
+					})
+					return
+				}
+			} else {
+			}
+		} else {
+			newTargetDir = append(newTargetDir, entry)
+		}
+	}
+	(*pTargetDir) = newTargetDir
+	syncUpdatedRootDirToDB(user.UserName, rootDir)
+	writeJsonData(w, nil)
 }
 
 func GetCurrentUser(w http.ResponseWriter, r *http.Request) {
