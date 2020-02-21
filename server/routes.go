@@ -39,7 +39,7 @@ func (s *server) routes() {
 	// Protected Routes
 	s.router.Group(func(r chi.Router) {
 		// Seek, verify and validate JWT tokens
-		r.Use(jwtauth.Verifier(tokenAuth))
+		r.Use(jwtauth.Verifier(s.tokenAuth))
 
 		// Handle valid / invalid tokens. In this example, we use
 		// the provided authenticator middleware, but you can write your

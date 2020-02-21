@@ -1,14 +1,26 @@
 package db
 
-type appService struct{}
+import (
+	"upper.io/db.v3"
+	"upper.io/db.v3/lib/sqlbuilder"
+)
 
 // AppService encapsulate the operations on the `app` table
-var AppService = &appService{}
+type AppService interface {
+	NewApp(app *App) error
+}
 
-const kTableName = "app"
+type appService struct {
+	table db.Collection
+}
+
+func NewAppService(dbConn sqlbuilder.Database) AppService {
+	const kTableName = "app"
+	return &appService{
+		table: dbConn.Collection(kTableName),
+	}
+}
 
 func (s *appService) NewApp(app *App) error {
-	tbl := defaultClient.Collection(kTableName)
-	err := tbl.InsertReturning(app)
-	return err
+	return s.table.InsertReturning(app)
 }

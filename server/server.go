@@ -5,21 +5,35 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi"
+	"github.com/go-chi/jwtauth"
+	"github.com/rtxu/luban-api/config"
+	"github.com/rtxu/luban-api/db"
 	"upper.io/db.v3/lib/sqlbuilder"
 )
 
 // refactor based on [GopherCon 2019: Mat Ryer - How I Write HTTP Web Services after Eight Years](https://www.youtube.com/watch?v=rWBSMsLG8po)
 type server struct {
-	db     sqlbuilder.Database
-	router chi.Router
+	conf      config.AppConfig
+	router    chi.Router
+	tokenAuth *jwtauth.JWTAuth
+
+	appService  db.AppService
+	userService db.UserService
 }
 
-func New() *server {
+func New(conf config.AppConfig) *server {
 	svr := &server{
-		router: chi.NewRouter(),
+		conf:      conf,
+		router:    chi.NewRouter(),
+		tokenAuth: jwtauth.New("HS256", []byte(conf.JWTSecret), nil),
 	}
 	svr.routes()
 	return svr
+}
+
+func (s *server) SetupDBService(dbConn sqlbuilder.Database) {
+	s.appService = db.NewAppService(dbConn)
+	s.userService = db.NewUserService(dbConn)
 }
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -4,18 +4,31 @@ import (
 	"errors"
 
 	"upper.io/db.v3"
+	"upper.io/db.v3/lib/sqlbuilder"
 )
 
-type userService struct{}
-
 // UserService encapsulate the operations on the `user` table
-var UserService = &userService{}
+type UserService interface {
+	Find(username string) (User, error)
+	FindByGithubUserName(username string) (User, error)
 
-const tableName = "user"
+	Insert(user User) error
+	Update(username string, toUpdate map[string]interface{}) error
+}
+
+func NewUserService(dbConn sqlbuilder.Database) UserService {
+	const kTableName = "user"
+	return &userService{
+		table: dbConn.Collection(kTableName),
+	}
+}
+
+type userService struct {
+	table db.Collection
+}
 
 func (s *userService) Find(username string) (User, error) {
-	tbl := defaultClient.Collection(tableName)
-	res := tbl.Find(db.Cond{"username": username})
+	res := s.table.Find(db.Cond{"username": username})
 	var user User
 	err := res.One(&user)
 	if errors.Is(err, db.ErrNoMoreRows) {
@@ -25,8 +38,7 @@ func (s *userService) Find(username string) (User, error) {
 }
 
 func (s *userService) FindByGithubUserName(username string) (User, error) {
-	tbl := defaultClient.Collection(tableName)
-	res := tbl.Find(db.Cond{"github_username": username})
+	res := s.table.Find(db.Cond{"github_username": username})
 	var user User
 	err := res.One(&user)
 	if errors.Is(err, db.ErrNoMoreRows) {
@@ -36,13 +48,11 @@ func (s *userService) FindByGithubUserName(username string) (User, error) {
 }
 
 func (s *userService) Insert(user User) error {
-	tbl := defaultClient.Collection(tableName)
-	_, err := tbl.Insert(user)
+	_, err := s.table.Insert(user)
 	return err
 }
 
 func (s *userService) Update(username string, toUpdate map[string]interface{}) error {
-	tbl := defaultClient.Collection(tableName)
-	res := tbl.Find(db.Cond{"username": username})
+	res := s.table.Find(db.Cond{"username": username})
 	return res.Update(toUpdate)
 }

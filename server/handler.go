@@ -13,10 +13,7 @@ import (
 	"github.com/go-chi/jwtauth"
 
 	"github.com/rtxu/luban-api/db"
-	"github.com/rtxu/luban-api/config"
 )
-
-var tokenAuth *jwtauth.JWTAuth = jwtauth.New("HS256", []byte(config.JWTSecret), nil)
 
 func (s *server) handleGithubLogin() http.HandlerFunc{
 	type accessTokenT struct {
@@ -31,8 +28,8 @@ func (s *server) handleGithubLogin() http.HandlerFunc{
 		githubCode := r.URL.Query().Get("code")
 		params := make(url.Values)
 		params.Add("code", githubCode)
-		params.Add("client_id", config.GithubOAuth.ClientID)
-		params.Add("client_secret", config.GithubOAuth.ClientSecret)
+		params.Add("client_id", s.conf.GithubOAuth.ClientID)
+		params.Add("client_secret", s.conf.GithubOAuth.ClientSecret)
 		req, _ := http.NewRequest("POST", "https://github.com/login/oauth/access_token?"+params.Encode(), nil)
 		req.Header.Add("Accept", "application/json")
 		req.Header.Add("Content-Type", "application/json")
@@ -61,10 +58,10 @@ func (s *server) handleGithubLogin() http.HandlerFunc{
 			panic(err)
 		}
 
-		_, err = db.UserService.FindByGithubUserName(userInfo.Login)
+		_, err = s.userService.FindByGithubUserName(userInfo.Login)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
-				err := db.UserService.Insert(db.User{
+				err := s.userService.Insert(db.User{
 					UserName:       userInfo.Login,
 					GithubUserName: &userInfo.Login,
 					AvatarUrl:      &userInfo.AvatarUrl,
@@ -81,13 +78,13 @@ func (s *server) handleGithubLogin() http.HandlerFunc{
 			"user_id": userInfo.Login,
 		}
 		jwtauth.SetExpiryIn(claims, 7*24*time.Hour)
-		_, tokenString, _ := tokenAuth.Encode(claims)
+		_, tokenString, _ := s.tokenAuth.Encode(claims)
 		query := url.Values{
 			"access_token": {fmt.Sprintf("Bearer %s", tokenString)},
 		}.Encode()
 
 		http.Redirect(w, r,
-			fmt.Sprintf("%s/login-success?%s", config.AppRoot, query),
+			fmt.Sprintf("%s/login-success?%s", s.conf.AppRoot, query),
 			303)
 	}
 }
@@ -101,7 +98,7 @@ func (s *server) handleCurrentUserGet() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, claims, _ := jwtauth.FromContext(r.Context())
 		var userID = claims["user_id"].(string)
-		user, err := db.UserService.Find(userID)
+		user, err := s.userService.Find(userID)
 		if err != nil {
 			panic(err)
 		}

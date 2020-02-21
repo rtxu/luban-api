@@ -66,10 +66,10 @@ type EntryT struct {
 
 type DirectoryT []*EntryT
 
-func getCurrentUserAndRootDir(r *http.Request) (db.User, DirectoryT) {
+func (s *server) getCurrentUserAndRootDir(r *http.Request) (db.User, DirectoryT) {
 	_, claims, _ := jwtauth.FromContext(r.Context())
 	var userID = claims["user_id"].(string)
-	user, err := db.UserService.Find(userID)
+	user, err := s.userService.Find(userID)
 	if err != nil {
 		panic(err)
 	}
@@ -100,10 +100,10 @@ func findTargetDir(targetDirName string, rootDir *DirectoryT) *DirectoryT {
 	return currentDirPtr
 }
 
-func syncUpdatedRootDirToDB(username string, rootDir DirectoryT) {
+func (s *server) syncUpdatedRootDirToDB(username string, rootDir DirectoryT) {
 	var buffer strings.Builder
 	json.NewEncoder(&buffer).Encode(rootDir)
-	err := db.UserService.Update(username, map[string]interface{}{
+	err := s.userService.Update(username, map[string]interface{}{
 		"root_dir": buffer.String(),
 	})
 	if err != nil {
@@ -122,7 +122,7 @@ func (s *server) handleEntryCreate() http.HandlerFunc {
 			panic(err)
 		}
 
-		user, rootDir := getCurrentUserAndRootDir(r)
+		user, rootDir := s.getCurrentUserAndRootDir(r)
 		pTargetDir := findTargetDir(param.Dir, &rootDir)
 
 		for i := 0; i < len(*pTargetDir); i++ {
@@ -143,14 +143,14 @@ func (s *server) handleEntryCreate() http.HandlerFunc {
 			app := &db.App{
 				OwnerID: user.ID,
 			}
-			err := db.AppService.NewApp(app)
+			err := s.appService.NewApp(app)
 			if err != nil {
 				panic(err)
 			}
 			param.Entry.AppId = app.ID
 		}
 		(*pTargetDir) = append((*pTargetDir), &param.Entry)
-		syncUpdatedRootDirToDB(user.UserName, rootDir)
+		s.syncUpdatedRootDirToDB(user.UserName, rootDir)
 		s.respond(w, r, defaultResponse{}, http.StatusOK)
 	}
 }
@@ -166,7 +166,7 @@ func (s *server) handleEntryDelete() http.HandlerFunc {
 			panic(err)
 		}
 
-		user, rootDir := getCurrentUserAndRootDir(r)
+		user, rootDir := s.getCurrentUserAndRootDir(r)
 		pTargetDir := findTargetDir(param.Dir, &rootDir)
 
 		newTargetDir := make(DirectoryT, 0, len((*pTargetDir))-1)
@@ -188,7 +188,7 @@ func (s *server) handleEntryDelete() http.HandlerFunc {
 			}
 		}
 		(*pTargetDir) = newTargetDir
-		syncUpdatedRootDirToDB(user.UserName, rootDir)
+		s.syncUpdatedRootDirToDB(user.UserName, rootDir)
 		s.respond(w, r, defaultResponse{}, http.StatusOK)
 	}
 }

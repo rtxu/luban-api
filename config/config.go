@@ -19,32 +19,23 @@ type MysqlConf struct {
 	Database string `yaml:"Database"`
 }
 
-var (
-	GithubOAuth GithubOAuthConf
-	JWTSecret   string
-	AppRoot     string
-	Mysql       MysqlConf
-)
+type AppConfig struct {
+	GithubOAuth GithubOAuthConf `yaml:"GithubOAuth"`
+	JWTSecret   string          `yaml:"JWTSecret"`
+	AppRoot     string          `yaml:"AppRoot"`
+	Mysql       MysqlConf       `yaml:"Mysql"`
+}
 
-func init() {
+func LoadConfig() (AppConfig, error) {
+	var appConf AppConfig
 	configBytes, err := ioutil.ReadFile("./conf/config.yaml")
 	if err != nil {
-		panic(err)
+		return appConf, err
 	}
-	type appConfig struct {
-		GithubOAuth GithubOAuthConf `yaml:"GithubOAuth"`
-		JWTSecret   string          `yaml:"JWTSecret"`
-		AppRoot     string          `yaml:"AppRoot"`
-		Mysql       MysqlConf       `yaml:"Mysql"`
-	}
-	var appConf appConfig
 	err = yaml.Unmarshal(configBytes, &appConf)
 	if err != nil {
-		panic(err)
+		return appConf, err
 	}
 
-	GithubOAuth = appConf.GithubOAuth
-	JWTSecret = appConf.JWTSecret
-	AppRoot = appConf.AppRoot
-	Mysql = appConf.Mysql
+	return appConf, nil
 }
