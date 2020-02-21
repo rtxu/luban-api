@@ -2,11 +2,11 @@ package server
 
 import (
 	"encoding/json"
-	"net/http"
-	"strings"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -15,7 +15,7 @@ import (
 	"github.com/rtxu/luban-api/db"
 )
 
-func (s *server) handleGithubLogin() http.HandlerFunc{
+func (s *server) handleGithubLogin() http.HandlerFunc {
 	type accessTokenT struct {
 		TokenType   string `json:"token_type"`
 		AccessToken string `json:"access_token"`

@@ -24,3 +24,22 @@ func NewAppService(dbConn sqlbuilder.Database) AppService {
 func (s *appService) NewApp(app *App) error {
 	return s.table.InsertReturning(app)
 }
+
+type memAppService struct {
+	id    uint32
+	table map[uint32]*App
+}
+
+// Used under unit-test enviroment
+func NewMemAppService() AppService {
+	return &memAppService{
+		table: make(map[uint32]*App),
+	}
+}
+
+func (s *memAppService) NewApp(app *App) error {
+	app.ID = s.id
+	s.id++
+	s.table[app.ID] = app
+	return nil
+}

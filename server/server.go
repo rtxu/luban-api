@@ -2,6 +2,8 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi"
@@ -43,7 +45,19 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *server) respond(w http.ResponseWriter, r *http.Request, data interface{}, status int) {
 	w.WriteHeader(status)
 	if data != nil {
-		if err := json.NewEncoder(w).Encode(data); err != nil {
+		var resp *defaultResponse
+		switch v := data.(type) {
+		case defaultResponse:
+			resp = &v
+		case error:
+			resp = &defaultResponse{
+				Code: errCodeMap[errors.Unwrap(v)],
+				Msg:  v.Error(),
+			}
+		default:
+			panic(fmt.Sprintf("unknown data type: %T", data))
+		}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			panic(err)
 		}
 	}
@@ -59,3 +73,5 @@ type defaultResponse struct {
 	Msg  string      `json:"msg"`
 	Data interface{} `json:"data"`
 }
+
+var success = defaultResponse{}

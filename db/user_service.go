@@ -56,3 +56,71 @@ func (s *userService) Update(username string, toUpdate map[string]interface{}) e
 	res := s.table.Find(db.Cond{"username": username})
 	return res.Update(toUpdate)
 }
+
+type memUserService struct {
+	id    uint32
+	table map[uint32]*User
+}
+
+// Used under unit-test enviroment
+func NewMemUserService() UserService {
+	return &memUserService{
+		table: make(map[uint32]*User),
+	}
+}
+
+func (s *memUserService) find(username string) *User {
+	var result *User
+	for _, v := range s.table {
+		if v.UserName == username {
+			return v
+		}
+	}
+	return result
+}
+func (s *memUserService) Find(username string) (User, error) {
+	user := s.find(username)
+	if user == nil {
+		return User{}, ErrNotFound
+	} else {
+		return *user, nil
+	}
+}
+
+func (s *memUserService) FindByGithubUserName(username string) (User, error) {
+	var result *User
+	for _, v := range s.table {
+		if v.GithubUserName != nil && *v.GithubUserName == username {
+			result = v
+			break
+		}
+	}
+	if result == nil {
+		return User{}, ErrNotFound
+	} else {
+		return *result, nil
+	}
+}
+
+func (s *memUserService) Insert(user User) error {
+	s.table[s.id] = &user
+	s.id++
+	return nil
+}
+
+func (s *memUserService) Update(username string, toUpdate map[string]interface{}) error {
+	result := s.find(username)
+	if result == nil {
+		return nil
+	}
+	for k, v := range toUpdate {
+		switch k {
+		case "root_dir":
+			str := v.(string)
+			result.RootDir = &str
+		default:
+			panic("Not Implemented")
+		}
+	}
+	return nil
+}

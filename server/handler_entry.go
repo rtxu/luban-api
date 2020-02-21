@@ -66,9 +66,7 @@ type EntryT struct {
 
 type DirectoryT []*EntryT
 
-func (s *server) getCurrentUserAndRootDir(r *http.Request) (db.User, DirectoryT) {
-	_, claims, _ := jwtauth.FromContext(r.Context())
-	var userID = claims["user_id"].(string)
+func (s *server) getCurrentUserAndRootDirFromDB(userID string) (db.User, DirectoryT) {
 	user, err := s.userService.Find(userID)
 	if err != nil {
 		panic(err)
@@ -82,25 +80,56 @@ func (s *server) getCurrentUserAndRootDir(r *http.Request) (db.User, DirectoryT)
 	return user, rootDir
 }
 
-func findTargetDir(targetDirName string, rootDir *DirectoryT) *DirectoryT {
+func (s *server) getCurrentUserAndRootDir(r *http.Request) (db.User, DirectoryT) {
+	_, claims, _ := jwtauth.FromContext(r.Context())
+	var userID = claims["user_id"].(string)
+	return s.getCurrentUserAndRootDirFromDB(userID)
+}
+
+func findDir(targetDirName string, rootDir *DirectoryT) (*DirectoryT, error) {
+	if targetDirName == "/" {
+		return rootDir, nil
+	}
+	dirName := targetDirName[1 : len(targetDirName)-1]
+	dirParts := strings.Split(dirName, "/")
 	currentDirPtr := rootDir
-	dirParts := strings.FieldsFunc(targetDirName, func(r rune) bool {
-		return r == '/'
-	})
 	for i := 0; i < len(dirParts); i++ {
 		targetDirName := dirParts[i]
+		found := false
 		for j := 0; j < len(*currentDirPtr); j++ {
 			entry := (*currentDirPtr)[j]
 			if entry.Type == Directory && entry.Name == targetDirName {
+				found = true
 				currentDirPtr = &entry.Children
 				break
 			}
 		}
+		if !found {
+			return nil, fmt.Errorf("%w: dir(%s) not found", errEntryNotFound, targetDirName)
+		}
 	}
-	return currentDirPtr
+	return currentDirPtr, nil
 }
 
-func (s *server) syncUpdatedRootDirToDB(username string, rootDir DirectoryT) {
+func validate(dir, entryName string) error {
+	if entryName == "" {
+		return fmt.Errorf("%w: empty entry name", errInvalidParam)
+	}
+	if strings.Contains(entryName, "/") {
+		return fmt.Errorf("%w: '/' is illegal in entry name", errInvalidParam)
+	}
+	if dir == "" {
+		return fmt.Errorf("%w: empty dirname", errInvalidParam)
+	}
+	length := len(dir)
+	if dir[0] != '/' || dir[length-1] != '/' {
+		return fmt.Errorf("%w: dir(%s) should begin and end with '/'",
+			errInvalidParam, dir)
+	}
+	return nil
+}
+
+func (s *server) syncRootDirToDB(username string, rootDir DirectoryT) {
 	var buffer strings.Builder
 	json.NewEncoder(&buffer).Encode(rootDir)
 	err := s.userService.Update(username, map[string]interface{}{
@@ -119,20 +148,27 @@ func (s *server) handleEntryCreate() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var param request
 		if err := s.decode(w, r, &param); err != nil {
-			panic(err)
+			s.respond(w, r, fmt.Errorf("%w: %v", errJsonDecode, err), http.StatusOK)
+			return
+		}
+		if err := validate(param.Dir, param.Entry.Name); err != nil {
+			s.respond(w, r, err, http.StatusOK)
+			return
 		}
 
 		user, rootDir := s.getCurrentUserAndRootDir(r)
-		pTargetDir := findTargetDir(param.Dir, &rootDir)
+		pTargetDir, err := findDir(param.Dir, &rootDir)
+		if err != nil {
+			s.respond(w, r, err, http.StatusOK)
+			return
+		}
 
 		for i := 0; i < len(*pTargetDir); i++ {
 			if (*pTargetDir)[i].Name == param.Entry.Name {
-				s.respond(w, r, defaultResponse{
-					Code: 1,
-					Msg: fmt.Sprintf("Entry(%s) already exists under directory(%s)",
-						param.Entry.Name,
-						param.Dir),
-				}, http.StatusOK)
+				s.respond(w, r,
+					fmt.Errorf("%w: %s%s", errEntryAlreadyExist,
+						param.Dir, param.Entry.Name),
+					http.StatusOK)
 				return
 			}
 		}
@@ -150,8 +186,8 @@ func (s *server) handleEntryCreate() http.HandlerFunc {
 			param.Entry.AppId = app.ID
 		}
 		(*pTargetDir) = append((*pTargetDir), &param.Entry)
-		s.syncUpdatedRootDirToDB(user.UserName, rootDir)
-		s.respond(w, r, defaultResponse{}, http.StatusOK)
+		s.syncRootDirToDB(user.UserName, rootDir)
+		s.respond(w, r, success, http.StatusOK)
 	}
 }
 
@@ -163,32 +199,37 @@ func (s *server) handleEntryDelete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var param request
 		if err := s.decode(w, r, &param); err != nil {
-			panic(err)
+			s.respond(w, r, fmt.Errorf("%w: %v", errJsonDecode, err), http.StatusOK)
+			return
+		}
+		if err := validate(param.Dir, param.EntryName); err != nil {
+			s.respond(w, r, err, http.StatusOK)
+			return
 		}
 
 		user, rootDir := s.getCurrentUserAndRootDir(r)
-		pTargetDir := findTargetDir(param.Dir, &rootDir)
+		pTargetDir, err := findDir(param.Dir, &rootDir)
+		if err != nil {
+			s.respond(w, r, err, http.StatusOK)
+			return
+		}
 
 		newTargetDir := make(DirectoryT, 0, len((*pTargetDir))-1)
 		for i := 0; i < len((*pTargetDir)); i++ {
 			entry := (*pTargetDir)[i]
 			if entry.Name == param.EntryName {
-				if entry.Type == Directory {
-					if len(entry.Children) > 0 {
-						s.respond(w, r, defaultResponse{
-							Code: 1,
-							Msg:  "non-empty directory",
-						}, http.StatusOK)
-						return
-					}
-				} else {
+				if entry.Type == Directory && len(entry.Children) > 0 {
+					s.respond(w, r,
+						fmt.Errorf("%w: %s", errDirNotEmpty, param.Dir),
+						http.StatusOK)
+					return
 				}
 			} else {
 				newTargetDir = append(newTargetDir, entry)
 			}
 		}
 		(*pTargetDir) = newTargetDir
-		s.syncUpdatedRootDirToDB(user.UserName, rootDir)
-		s.respond(w, r, defaultResponse{}, http.StatusOK)
+		s.syncRootDirToDB(user.UserName, rootDir)
+		s.respond(w, r, success, http.StatusOK)
 	}
 }
