@@ -42,24 +42,38 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
 }
 
+// Copied from the [golang official doc](https://golang.org/pkg/net/http/#ResponseWriter):
+// If WriteHeader is not called explicitly, the first call to Write
+// will trigger an implicit WriteHeader(http.StatusOK).
+// Thus explicit calls to WriteHeader are mainly used to
+// send error codes.
+// The provided code must be a valid HTTP 1xx-5xx status code.
+// Only one header may be written.
+
+// 经测试，此处 WriterHeader 后，如果发生 panic，返回的 reponse header 依然是 200，
+// 而非 500（由 middleware Recoverer 实现）
 func (s *server) respond(w http.ResponseWriter, r *http.Request, data interface{}, status int) {
-	w.WriteHeader(status)
-	if data != nil {
-		var resp *defaultResponse
-		switch v := data.(type) {
-		case defaultResponse:
-			resp = &v
-		case error:
+	var resp *defaultResponse
+	switch v := data.(type) {
+	case defaultResponse:
+		resp = &v
+	case error:
+		if errCode, ok := errCodeMap[errors.Unwrap(v)]; ok {
 			resp = &defaultResponse{
-				Code: errCodeMap[errors.Unwrap(v)],
+				Code: errCode,
 				Msg:  v.Error(),
 			}
-		default:
-			panic(fmt.Sprintf("unknown data type: %T", data))
+		} else {
+			panic(fmt.Sprintf("unexpected error: %v", v))
 		}
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			panic(err)
-		}
+
+	default:
+		panic(fmt.Sprintf("unknown data type: %T", data))
+	}
+
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		panic(err)
 	}
 }
 
