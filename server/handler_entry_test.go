@@ -8,38 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
-	"github.com/dgrijalva/jwt-go"
-	"github.com/go-chi/jwtauth"
-	"github.com/rtxu/luban-api/config"
-	"github.com/rtxu/luban-api/db"
 	"github.com/stretchr/testify/assert"
 )
-
-const kCurrentUserName = "test_user"
-const kCurrentUserId = 9527
-
-func newTestServer() (*server, string) {
-	conf := config.AppConfig{
-		JWTSecret: "test_secret",
-	}
-	svr := New(conf)
-
-	svr.appService = db.NewMemAppService()
-	svr.userService = db.NewMemUserService()
-	svr.userService.Insert(db.User{
-		UserName: kCurrentUserName,
-		ID:       kCurrentUserId,
-	})
-	claims := jwt.MapClaims{
-		kTokenClaimUserName: kCurrentUserName,
-		kTokenClaimUserId:   kCurrentUserId,
-	}
-	jwtauth.SetExpiryIn(claims, 7*24*time.Hour)
-	_, tokenString, _ := svr.tokenAuth.Encode(claims)
-	return svr, tokenString
-}
 
 func TestFindDir(t *testing.T) {
 	assert := assert.New(t)
@@ -71,27 +42,15 @@ func TestHandleEntry(t *testing.T) {
 	svr, token := newTestServer()
 
 	// POST /currentUser/entry
-	type createRequest struct {
-		Dir   string `json:"dir"`
-		Entry EntryT `json:"entry"`
+	myCreateEntry := func(req createRequest) *http.Response {
+		return createEntry(req, svr, token)
 	}
-	createEntry := func(req createRequest) *http.Response {
-		reqBodyBytes, _ := json.Marshal(req)
-		httpReq := httptest.NewRequest("POST", "/currentUser/entry",
-			bytes.NewReader(reqBodyBytes))
-		httpReq.Header.Add("Authorization", fmt.Sprintf("BEARER %s", token))
-		// fmt.Println(req.Header.Get("Authorization"))
-		w := httptest.NewRecorder()
-		svr.ServeHTTP(w, httpReq)
-		return w.Result()
-	}
-
 	assert := assert.New(t)
 	assertEntryExists := func(entryName string, dir DirectoryT) {
 		for _, entry := range dir {
 			if entry.Name == entryName {
 				if entry.Type == App {
-					_, err := svr.appService.Find(kCurrentUserId, entry.AppId)
+					_, err := svr.appService.Find(kTestUserId, entry.AppId)
 					assert.NoError(err)
 				}
 				return
@@ -99,16 +58,9 @@ func TestHandleEntry(t *testing.T) {
 		}
 		t.Errorf("NOT FOUND entry: %s", entryName)
 	}
-	assertErrCode := func(code int, resp *http.Response) {
-		assert.Equal(http.StatusOK, resp.StatusCode)
-
-		var jsonResponse defaultResponse
-		json.NewDecoder(resp.Body).Decode(&jsonResponse)
-		assert.Equal(code, jsonResponse.Code)
-	}
 
 	// 1. create app /entry1
-	resp := createEntry(createRequest{
+	resp := myCreateEntry(createRequest{
 		Dir: "/",
 		Entry: EntryT{
 			Name: "entry1",
@@ -121,11 +73,11 @@ func TestHandleEntry(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&jsonResponse)
 	assert.Equal(0, jsonResponse.Code)
 
-	_, rootDir := svr.getCurrentUserAndRootDirFromDB(kCurrentUserName)
+	_, rootDir := svr.getCurrentUserAndRootDirFromDB(kTestUserName)
 	assertEntryExists("entry1", rootDir)
 
 	// 2. create app /entry1 again
-	assertErrCode(errCodeMap[errEntryAlreadyExist], createEntry(createRequest{
+	assertErrCode(t, errCodeMap[errEntryAlreadyExist], myCreateEntry(createRequest{
 		Dir: "/",
 		Entry: EntryT{
 			Name: "entry1",
@@ -134,35 +86,35 @@ func TestHandleEntry(t *testing.T) {
 	}))
 
 	// 3. create app /a/b/c
-	assertErrCode(success.Code, createEntry(createRequest{
+	assertErrCode(t, success.Code, myCreateEntry(createRequest{
 		Dir: "/",
 		Entry: EntryT{
 			Name: "a",
 			Type: Directory,
 		},
 	}))
-	assertErrCode(success.Code, createEntry(createRequest{
+	assertErrCode(t, success.Code, myCreateEntry(createRequest{
 		Dir: "/a/",
 		Entry: EntryT{
 			Name: "b",
 			Type: Directory,
 		},
 	}))
-	assertErrCode(success.Code, createEntry(createRequest{
+	assertErrCode(t, success.Code, myCreateEntry(createRequest{
 		Dir: "/a/b/",
 		Entry: EntryT{
 			Name: "c",
 			Type: App,
 		},
 	}))
-	_, rootDir = svr.getCurrentUserAndRootDirFromDB(kCurrentUserName)
+	_, rootDir = svr.getCurrentUserAndRootDirFromDB(kTestUserName)
 	dir, err := findDir("/a/b/", &rootDir)
 	assert.Nil(err)
 	assertEntryExists("c", *dir)
 
 	// 4. invalid param
 	// empty dir name
-	assertErrCode(errCodeMap[errInvalidParam], createEntry(createRequest{
+	assertErrCode(t, errCodeMap[errInvalidParam], myCreateEntry(createRequest{
 		Dir: "",
 		Entry: EntryT{
 			Name: "c",
@@ -170,7 +122,7 @@ func TestHandleEntry(t *testing.T) {
 		},
 	}))
 	// not begin with '/'
-	assertErrCode(errCodeMap[errInvalidParam], createEntry(createRequest{
+	assertErrCode(t, errCodeMap[errInvalidParam], myCreateEntry(createRequest{
 		Dir: "dir/",
 		Entry: EntryT{
 			Name: "entry",
@@ -178,7 +130,7 @@ func TestHandleEntry(t *testing.T) {
 		},
 	}))
 	// not end with '/'
-	assertErrCode(errCodeMap[errInvalidParam], createEntry(createRequest{
+	assertErrCode(t, errCodeMap[errInvalidParam], myCreateEntry(createRequest{
 		Dir: "/dir",
 		Entry: EntryT{
 			Name: "entry",
@@ -186,7 +138,7 @@ func TestHandleEntry(t *testing.T) {
 		},
 	}))
 	// empty entry name
-	assertErrCode(errCodeMap[errInvalidParam], createEntry(createRequest{
+	assertErrCode(t, errCodeMap[errInvalidParam], myCreateEntry(createRequest{
 		Dir: "/dir/",
 		Entry: EntryT{
 			Name: "",
@@ -194,7 +146,7 @@ func TestHandleEntry(t *testing.T) {
 		},
 	}))
 	// entry name contains '/'
-	assertErrCode(errCodeMap[errInvalidParam], createEntry(createRequest{
+	assertErrCode(t, errCodeMap[errInvalidParam], myCreateEntry(createRequest{
 		Dir: "/dir/",
 		Entry: EntryT{
 			Name: "entry_name_contains_/",
@@ -226,35 +178,35 @@ func TestHandleEntry(t *testing.T) {
 	}
 
 	// 1. delete not exist entry
-	assertErrCode(success.Code, deleteEntry(deleteRequest{
+	assertErrCode(t, success.Code, deleteEntry(deleteRequest{
 		Dir:       "/",
 		EntryName: "not_exist_entry",
 	}))
 
 	// 2. delete /entry1
-	assertErrCode(success.Code, deleteEntry(deleteRequest{
+	assertErrCode(t, success.Code, deleteEntry(deleteRequest{
 		Dir:       "/",
 		EntryName: "entry1",
 	}))
-	_, rootDir = svr.getCurrentUserAndRootDirFromDB(kCurrentUserName)
+	_, rootDir = svr.getCurrentUserAndRootDirFromDB(kTestUserName)
 	assertEntryNotExist("entry1", rootDir)
 
 	// 3. delete non-empty directory
-	assertErrCode(errCodeMap[errDirNotEmpty], deleteEntry(deleteRequest{
+	assertErrCode(t, errCodeMap[errDirNotEmpty], deleteEntry(deleteRequest{
 		Dir:       "/",
 		EntryName: "a",
 	}))
 
 	// 4. delete empty directory
-	assertErrCode(success.Code, deleteEntry(deleteRequest{
+	assertErrCode(t, success.Code, deleteEntry(deleteRequest{
 		Dir:       "/a/b/",
 		EntryName: "c",
 	}))
-	assertErrCode(success.Code, deleteEntry(deleteRequest{
+	assertErrCode(t, success.Code, deleteEntry(deleteRequest{
 		Dir:       "/a/",
 		EntryName: "b",
 	}))
-	_, rootDir = svr.getCurrentUserAndRootDirFromDB(kCurrentUserName)
+	_, rootDir = svr.getCurrentUserAndRootDirFromDB(kTestUserName)
 	dir, err = findDir("/a/", &rootDir)
 	assert.Nil(err)
 	assertEntryNotExist("b", *dir)

@@ -55,6 +55,7 @@ func (s *server) routes() {
 		})
 		r.Route("/currentUser/app", func(r chi.Router) {
 			r.Get("/", s.handleAppGet())
+			r.Put("/", s.handleAppSave())
 		})
 	})
 

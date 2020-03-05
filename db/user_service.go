@@ -124,7 +124,7 @@ func (s *memUserService) NewUser(user *User) error {
 func (s *memUserService) Update(username string, toUpdate map[string]interface{}) error {
 	result := s.find(username)
 	if result == nil {
-		return nil
+		return ErrNotFound
 	}
 	for k, v := range toUpdate {
 		switch k {
