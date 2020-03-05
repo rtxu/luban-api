@@ -1,6 +1,7 @@
 package db
 
 import (
+	"encoding/json"
 	"errors"
 
 	"upper.io/db.v3"
@@ -13,6 +14,7 @@ type UserService interface {
 	FindByGithubUserName(username string) (User, error)
 
 	Insert(user User) error
+	NewUser(user *User) error
 	Update(username string, toUpdate map[string]interface{}) error
 }
 
@@ -50,6 +52,10 @@ func (s *userService) FindByGithubUserName(username string) (User, error) {
 func (s *userService) Insert(user User) error {
 	_, err := s.table.Insert(user)
 	return err
+}
+
+func (s *userService) NewUser(user *User) error {
+	return s.table.InsertReturning(user)
 }
 
 func (s *userService) Update(username string, toUpdate map[string]interface{}) error {
@@ -108,6 +114,13 @@ func (s *memUserService) Insert(user User) error {
 	return nil
 }
 
+func (s *memUserService) NewUser(user *User) error {
+	user.ID = s.id
+	s.table[user.ID] = user
+	s.id++
+	return nil
+}
+
 func (s *memUserService) Update(username string, toUpdate map[string]interface{}) error {
 	result := s.find(username)
 	if result == nil {
@@ -116,8 +129,7 @@ func (s *memUserService) Update(username string, toUpdate map[string]interface{}
 	for k, v := range toUpdate {
 		switch k {
 		case "root_dir":
-			str := v.(string)
-			result.RootDir = &str
+			result.RootDir = v.(json.RawMessage)
 		default:
 			panic("Not Implemented")
 		}

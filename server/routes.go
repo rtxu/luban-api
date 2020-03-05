@@ -53,6 +53,9 @@ func (s *server) routes() {
 			r.Post("/", s.handleEntryCreate())
 			r.Delete("/", s.handleEntryDelete())
 		})
+		r.Route("/currentUser/app", func(r chi.Router) {
+			r.Get("/", s.handleAppGet())
+		})
 	})
 
 }

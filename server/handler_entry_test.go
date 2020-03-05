@@ -18,6 +18,7 @@ import (
 )
 
 const kCurrentUserName = "test_user"
+const kCurrentUserId = 9527
 
 func newTestServer() (*server, string) {
 	conf := config.AppConfig{
@@ -29,9 +30,11 @@ func newTestServer() (*server, string) {
 	svr.userService = db.NewMemUserService()
 	svr.userService.Insert(db.User{
 		UserName: kCurrentUserName,
+		ID:       kCurrentUserId,
 	})
 	claims := jwt.MapClaims{
-		"user_id": kCurrentUserName,
+		kTokenClaimUserName: kCurrentUserName,
+		kTokenClaimUserId:   kCurrentUserId,
 	}
 	jwtauth.SetExpiryIn(claims, 7*24*time.Hour)
 	_, tokenString, _ := svr.tokenAuth.Encode(claims)
@@ -87,6 +90,10 @@ func TestHandleEntry(t *testing.T) {
 	assertEntryExists := func(entryName string, dir DirectoryT) {
 		for _, entry := range dir {
 			if entry.Name == entryName {
+				if entry.Type == App {
+					_, err := svr.appService.Find(kCurrentUserId, entry.AppId)
+					assert.NoError(err)
+				}
 				return
 			}
 		}

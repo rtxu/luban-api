@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -28,6 +27,9 @@ import (
 如果该 API 在第三步出错，而未能 redirect 给 client，将会导致用户页面停留在 API Server 端，
 打断了用户的使用，所以该 API 无论成功与否，都应该将控制权交给 client
 */
+const kTokenClaimUserId = "user_id"
+const kTokenClaimUserName = "username"
+
 func (s *server) handleGithubLogin() http.HandlerFunc {
 	type accessTokenT struct {
 		TokenType   string `json:"token_type"`
@@ -40,7 +42,7 @@ func (s *server) handleGithubLogin() http.HandlerFunc {
 	const ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
 	const USER_INFO_URL = "https://api.github.com/user"
 
-	defaultRootDir := "[]"
+	defaultRootDir := json.RawMessage("[]")
 
 	loginErr := func(w http.ResponseWriter, r *http.Request, err error, promptErrMsg string) {
 		middleware.GetLogEntry(r).Warningln(err)
@@ -97,15 +99,17 @@ func (s *server) handleGithubLogin() http.HandlerFunc {
 			return
 		}
 
-		_, err = s.userService.FindByGithubUserName(userInfo.Login)
+		var user db.User
+		user, err = s.userService.FindByGithubUserName(userInfo.Login)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
-				err := s.userService.Insert(db.User{
+				user = db.User{
 					UserName:       userInfo.Login,
 					GithubUserName: &userInfo.Login,
 					AvatarUrl:      &userInfo.AvatarUrl,
-					RootDir:        &defaultRootDir,
-				})
+					RootDir:        defaultRootDir,
+				}
+				err := s.userService.NewUser(&user)
 				if err != nil {
 					loginErr(w, r,
 						fmt.Errorf("error happened when insert user, err: %w", err),
@@ -122,7 +126,8 @@ func (s *server) handleGithubLogin() http.HandlerFunc {
 		}
 
 		claims := jwt.MapClaims{
-			"user_id": userInfo.Login,
+			kTokenClaimUserId:   user.ID,
+			kTokenClaimUserName: userInfo.Login,
 		}
 		jwtauth.SetExpiryIn(claims, 7*24*time.Hour)
 		_, tokenString, _ := s.tokenAuth.Encode(claims)
@@ -144,20 +149,12 @@ func (s *server) handleCurrentUserGet() http.HandlerFunc {
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, claims, _ := jwtauth.FromContext(r.Context())
-		var userID = claims["user_id"].(string)
-		user, err := s.userService.Find(userID)
-		if err != nil {
-			panic(err)
-		}
+		var username = claims[kTokenClaimUserName].(string)
+		user, rootDir := s.getCurrentUserAndRootDirFromDB(username)
 		data := dataT{
 			Username:  user.UserName,
 			AvatarUrl: *user.AvatarUrl,
-		}
-		if user.RootDir != nil {
-			err := json.NewDecoder(strings.NewReader(*user.RootDir)).Decode(&data.RootDir)
-			if err != nil {
-				panic(err)
-			}
+			RootDir:   rootDir,
 		}
 		s.respond(w, r, defaultResponse{Data: data}, http.StatusOK)
 	}

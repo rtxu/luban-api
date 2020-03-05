@@ -66,14 +66,14 @@ type EntryT struct {
 
 type DirectoryT []*EntryT
 
-func (s *server) getCurrentUserAndRootDirFromDB(userID string) (db.User, DirectoryT) {
-	user, err := s.userService.Find(userID)
+func (s *server) getCurrentUserAndRootDirFromDB(username string) (db.User, DirectoryT) {
+	user, err := s.userService.Find(username)
 	if err != nil {
 		panic(err)
 	}
 	var rootDir DirectoryT
 	if user.RootDir != nil {
-		if err := json.NewDecoder(strings.NewReader(*user.RootDir)).Decode(&rootDir); err != nil {
+		if err := json.Unmarshal(user.RootDir, &rootDir); err != nil {
 			panic(err)
 		}
 	}
@@ -82,8 +82,8 @@ func (s *server) getCurrentUserAndRootDirFromDB(userID string) (db.User, Directo
 
 func (s *server) getCurrentUserAndRootDir(r *http.Request) (db.User, DirectoryT) {
 	_, claims, _ := jwtauth.FromContext(r.Context())
-	var userID = claims["user_id"].(string)
-	return s.getCurrentUserAndRootDirFromDB(userID)
+	var username = claims[kTokenClaimUserName].(string)
+	return s.getCurrentUserAndRootDirFromDB(username)
 }
 
 func findDir(targetDirName string, rootDir *DirectoryT) (*DirectoryT, error) {
@@ -130,10 +130,9 @@ func validate(dir, entryName string) error {
 }
 
 func (s *server) syncRootDirToDB(username string, rootDir DirectoryT) {
-	var buffer strings.Builder
-	json.NewEncoder(&buffer).Encode(rootDir)
+	bytes, _ := json.Marshal(rootDir)
 	err := s.userService.Update(username, map[string]interface{}{
-		"root_dir": buffer.String(),
+		"root_dir": json.RawMessage(bytes),
 	})
 	if err != nil {
 		panic(err)
