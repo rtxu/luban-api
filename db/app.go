@@ -10,3 +10,11 @@ type App struct {
 	Content              json.RawMessage `db:"content"`
 	LastPublishedContent json.RawMessage `db:"last_published_content"`
 }
+
+func NewApp(ownerId uint32) *App {
+	return &App{
+		OwnerID:              ownerId,
+		Content:              []byte("{}"),
+		LastPublishedContent: []byte("{}"),
+	}
+}

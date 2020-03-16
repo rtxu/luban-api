@@ -175,9 +175,7 @@ func (s *server) handleEntryCreate() http.HandlerFunc {
 		if param.Entry.Type == Directory {
 			param.Entry.Children = make(DirectoryT, 0)
 		} else {
-			app := &db.App{
-				OwnerID: user.ID,
-			}
+			app := db.NewApp(user.ID)
 			err := s.appService.NewApp(app)
 			if err != nil {
 				panic(err)
